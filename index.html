@@ -207,7 +207,7 @@ function drawTop10List(yStart){
   for(let i=0;i<list.length;i++){
     ctx.font=`${Math.round(14*SCALE*0.5)}px Courier New`;
     ctx.textAlign = 'right';
-    ctx.fillStyle = i===0 ? '#f7d51d' : '#eee';
+    ctx.fillStyle = '#fff';
     ctx.fillText(`#${i+1}`, rankX, yy);
     ctx.textAlign = 'left';
     ctx.fillText(`${list[i]}`, scoreX, yy);
