@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- ★ 手机必备 viewport -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Clumsy Bird</title>
+<style>
+  body {
+    margin: 0;
+    background: #70c5ce;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+    /* ★ 禁止手机双击缩放/拖拽 */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas {
+    width: 1280px;
+    height: 960px;
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    background: linear-gradient(#87ceeb 0%, #e0f6ff 60%, #ded895 60%, #71c95b 100%);
+    border: 6px solid #333;
+    border-radius: 10px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.4);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="1280" height="960"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// ========== 常量 ==========
+const W = 1280, H = 960;
+const SCALE = 3.2;
+const GRAVITY = 0.62;
+const FLAP_STRENGTH = -13.5;
+const PIPE_WIDTH = Math.round(60 * SCALE);
+const PIPE_GAP = Math.round(150 * SCALE);
+const PIPE_SPEED = 1.7;
+const BIRD_SIZE = Math.round(28 * SCALE);
+const GROUND_Y = H * 0.82;
+
+// ========== Top10 ==========
+function loadTop10() {
+  try { return JSON.parse(localStorage.getItem('fb_top10') || '[]'); }
+  catch(e) { return []; }
+}
+function saveScore(s) {
+  let list = loadTop10();
+  list.push(s); list.sort((a,b)=>b-a); list = list.slice(0,10);
+  localStorage.setItem('fb_top10', JSON.stringify(list));
+}
+function getTop10() { return loadTop10(); }
+
+// ========== 状态 ==========
+let bird, pipes, score, frame = 0;
+let gameState = 'start'; // start | playing | dying | dead
+
+// ★ die 特效专用计时器
+let dieTimer = 0;
+const DIE_FRAMES = 22;
+
+function reset() {
+  bird = { x: Math.round(80*SCALE), y: H/2 - Math.round(40*SCALE), vy: 0 };
+  pipes = []; score = 0; frame = 0; dieTimer = 0;
+  spawnPipe();
+}
+
+function spawnPipe() {
+  const minTop = Math.round(50*SCALE);
+  const maxTop = GROUND_Y - PIPE_GAP - Math.round(50*SCALE);
+  const topH = Math.floor(Math.random()*(maxTop-minTop)) + minTop;
+  pipes.push({ x: W, topH: topH, passed: false });
+}
+
+// ========== 输入（键盘 + 触摸统一入口） ==========
+function doFlap() {
+  if (gameState === 'start') { gameState = 'playing'; }
+  else if (gameState === 'playing') { bird.vy = FLAP_STRENGTH; }
+  else if (gameState === 'dead') { reset(); gameState = 'playing'; }
+}
+
+// PC 空格
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  e.preventDefault();
+  doFlap();
+});
+
+// ★ 手机触摸（任意点屏幕都 flap）
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault(); // 防止滚动/双击选中
+  doFlap();
+}, { passive: false });
+
+// 也顺带支持鼠标点（方便电脑调试）
+canvas.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  doFlap();
+});
+
+// ========== 鸟绘制 ==========
+function drawBird(isDead=false) {
+  ctx.save();
+  ctx.translate(bird.x, bird.y);
+  let rot = Math.min(Math.max(bird.vy * 0.08, -0.5), 1.2);
+  let shakeX = 0, shakeY = 0;
+  if (isDead && dieTimer < 12) {
+    shakeX = (dieTimer % 2 === 0 ? 1 : -1) * 3 * SCALE * 0.4;
+    shakeY = 2 * SCALE * 0.4;
+  }
+  ctx.translate(shakeX, shakeY);
+  ctx.rotate(rot);
+
+  const r = BIRD_SIZE / 2;
+  const sc = SCALE * 0.4;
+
+  ctx.fillStyle = isDead ? '#888' : '#e8b923';
+  ctx.beginPath(); ctx.ellipse(-4*sc, 6*sc, 14*sc, 8*sc, 0.3, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = isDead ? '#999' : '#f7d51d';
+  ctx.beginPath(); ctx.ellipse(0, 2*sc, r, r*0.92, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = isDead ? '#aaa' : '#fcee7a';
+  ctx.beginPath(); ctx.ellipse(2*sc, 5*sc, r*0.7, r*0.55, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = isDead ? '#777' : '#d4a017';
+  ctx.beginPath();
+  ctx.moveTo(-6*sc,-r*0.9); ctx.lineTo(-3*sc,-r*1.15);
+  ctx.lineTo(0,-r*0.95); ctx.lineTo(3*sc,-r*1.1); ctx.lineTo(5*sc,-r*0.85); ctx.fill();
+
+  if (isDead) {
+    ctx.fillStyle = '#ddd';
+    ctx.beginPath(); ctx.arc(7*sc, -5*sc, 6*sc, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(7*sc, -3*sc, 2.5*sc, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(7*sc, -5*sc, 6*sc, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(9*sc, -5*sc, 3*sc, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(10*sc, -6*sc, 1.2*sc, 0, Math.PI*2); ctx.fill();
+  }
+
+  ctx.fillStyle = isDead ? '#a06030' : '#e67e22';
+  ctx.beginPath(); ctx.moveTo(13*sc,-2*sc); ctx.lineTo(24*sc,1*sc); ctx.lineTo(13*sc,5*sc); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = isDead ? '#7a4018' : '#c85a17'; ctx.lineWidth=1*sc;
+  ctx.beginPath(); ctx.moveTo(13*sc,1.5*sc); ctx.lineTo(22*sc,1.5*sc); ctx.stroke();
+
+  ctx.strokeStyle = isDead ? '#a06030' : '#e67e22'; ctx.lineWidth=1.5*sc;
+  ctx.beginPath();
+  ctx.moveTo(-3*sc,r*0.85); ctx.lineTo(-3*sc,r*1.15);
+  ctx.moveTo(3*sc,r*0.85);  ctx.lineTo(3*sc,r*1.15);
+  ctx.stroke();
+  ctx.fillStyle = isDead ? '#a06030' : '#e67e22';
+  ctx.fillRect(-5*sc, r*1.1, 4*sc, 1.2*sc);
+  ctx.fillRect(1*sc,  r*1.1, 4*sc, 1.2*sc);
+
+  ctx.strokeStyle = isDead ? '#666' : '#c89b0c'; ctx.lineWidth=1.5*sc;
+  ctx.beginPath(); ctx.ellipse(0,2*sc,r,r*0.92,0,0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+
+// ========== 水管/地面 ==========
+function drawPipe(p) {
+  const pipeColor='#2ecc40', capH=Math.round(26*SCALE*0.5);
+  ctx.fillStyle=pipeColor; ctx.fillRect(p.x,0,PIPE_WIDTH,p.topH);
+  ctx.fillStyle='#27ae38'; ctx.fillRect(p.x-Math.round(4*SCALE*0.5),p.topH-capH,PIPE_WIDTH+Math.round(8*SCALE*0.5),capH);
+  ctx.strokeStyle='#1e7a26'; ctx.lineWidth=Math.round(2*SCALE*0.5); ctx.strokeRect(p.x,0,PIPE_WIDTH,p.topH);
+  const botY=p.topH+PIPE_GAP, botH=GROUND_Y-botY;
+  ctx.fillStyle=pipeColor; ctx.fillRect(p.x,botY,PIPE_WIDTH,botH);
+  ctx.fillStyle='#27ae38'; ctx.fillRect(p.x-Math.round(4*SCALE*0.5),botY,PIPE_WIDTH+Math.round(8*SCALE*0.5),capH);
+  ctx.strokeStyle='#1e7a26'; ctx.strokeRect(p.x,botY,PIPE_WIDTH,botH);
+}
+function drawGround(){
+  ctx.fillStyle='#71c95b'; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+  ctx.fillStyle='#5aa845'; ctx.fillRect(0,GROUND_Y,W,Math.round(6*SCALE*0.5));
+}
+
+// ========== 分数/Top10 ==========
+function drawScore(){
+  ctx.fillStyle='#fff'; ctx.strokeStyle='#000'; ctx.lineWidth=Math.round(3*SCALE*0.5);
+  ctx.font=`bold ${Math.round(48*SCALE*0.5)}px Courier New`; ctx.textAlign='center';
+  if(gameState!=='start'){ ctx.strokeText(score,W/2,Math.round(80*SCALE*0.5)); ctx.fillText(score,W/2,Math.round(80*SCALE*0.5)); }
+}
+function drawTop10List(yStart){
+  let list=getTop10(); if(list.length===0) return;
+  ctx.font=`bold ${Math.round(16*SCALE*0.5)}px Courier New`; ctx.fillStyle='#fff'; ctx.textAlign='center';
+  ctx.fillText('── Top 10 Scores ──',W/2,yStart);
+
+  const rankX = W/2 - 60;
+  const scoreX = W/2 + 20;
+  let yy = yStart + 28*SCALE*0.5;
+
+  for(let i=0;i<list.length;i++){
+    ctx.font=`${Math.round(14*SCALE*0.5)}px Courier New`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = i===0 ? '#f7d51d' : '#eee';
+    ctx.fillText(`#${i+1}`, rankX, yy);
+    ctx.textAlign = 'left';
+    ctx.fillText(`${list[i]}`, scoreX, yy);
+    yy += 22*SCALE*0.5;
+  }
+}
+function drawOverlay(){
+  if(gameState==='start'){
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#000'; ctx.lineWidth=Math.round(2*SCALE*0.5);
+    ctx.font=`bold ${Math.round(28*SCALE*0.5)}px Courier New`; ctx.textAlign='center';
+    ctx.strokeText('Clumsy Bird',W/2,Math.round(220*SCALE*0.5)); ctx.fillText('Clumsy Bird',W/2,Math.round(220*SCALE*0.5));
+    ctx.font=`${Math.round(16*SCALE*0.5)}px Courier New`; ctx.fillStyle='#333';
+    ctx.fillText('点屏幕 / 空格 开始',W/2,Math.round(270*SCALE*0.5)); // ★ 提示语改了
+    drawTop10List(Math.round(360*SCALE*0.5));
+  }
+  if(gameState==='dead'){
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#000'; ctx.lineWidth=Math.round(2*SCALE*0.5); ctx.textAlign='center';
+    ctx.font=`bold ${Math.round(32*SCALE*0.5)}px Courier New`;
+    ctx.strokeText('GAME OVER',W/2,Math.round(200*SCALE*0.5)); ctx.fillText('GAME OVER',W/2,Math.round(200*SCALE*0.5));
+    ctx.font=`${Math.round(18*SCALE*0.5)}px Courier New`;
+    ctx.fillText(`本次得分: ${score}`,W/2,Math.round(240*SCALE*0.5));
+    ctx.fillText(`历史最高: ${Math.max(...getTop10(),0)}`,W/2,Math.round(268*SCALE*0.5));
+    ctx.fillText('点屏幕 重来',W/2,Math.round(306*SCALE*0.5)); // ★ 提示语改了
+    drawTop10List(Math.round(340*SCALE*0.5));
+  }
+}
+
+// ========== 碰撞 ==========
+function hitPipe(p){
+  const bx=bird.x,by=bird.y,r=BIRD_SIZE/2-Math.round(2*SCALE*0.5);
+  const topRect={x:p.x,y:0,w:PIPE_WIDTH,h:p.topH}, botY=p.topH+PIPE_GAP, botRect={x:p.x,y:botY,w:PIPE_WIDTH,h:GROUND_Y-botY};
+  function cr(cx,cy,cr2,rt){
+    let tx=cx,ty=cy;
+    if(cx<rt.x)tx=rt.x;else if(cx>rt.x+rt.w)tx=rt.x+rt.w;
+    if(cy<rt.y)ty=rt.y;else if(cy>rt.y+rt.h)ty=rt.y+rt.h;
+    return ((cx-tx)**2+(cy-ty)**2)<cr2*cr2;
+  }
+  return cr(bx,by,r,topRect)||cr(bx,by,r,botRect);
+}
+
+// ========== 死亡触发 ==========
+function triggerDeath(){
+  if(gameState==='dead'||gameState==='dying') return;
+  gameState = 'dying';
+  dieTimer = 0;
+  bird.vy = 0;
+  saveScore(score);
+}
+
+// ========== update ==========
+function update(){
+  if(gameState === 'dying'){
+    dieTimer++;
+    if(dieTimer >= DIE_FRAMES){ gameState = 'dead'; }
+    return;
+  }
+  if(gameState !== 'playing') return;
+
+  bird.vy += GRAVITY; bird.y += bird.vy;
+
+  if(bird.y + BIRD_SIZE/2 >= GROUND_Y){ bird.y = GROUND_Y - BIRD_SIZE/2; triggerDeath(); return; }
+  if(bird.y - BIRD_SIZE/2 <= 0){ bird.y = BIRD_SIZE/2; triggerDeath(); return; }
+
+  const spawnInterval = Math.round(145/(PIPE_SPEED/1.4));
+  if(frame%spawnInterval===0 && frame>0) spawnPipe();
+  for(let p of pipes){
+    p.x -= PIPE_SPEED;
+    if(!p.passed && p.x+PIPE_WIDTH < bird.x){ p.passed=true; score++; }
+    if(hitPipe(p)){ triggerDeath(); }
+  }
+  pipes = pipes.filter(p=>p.x+PIPE_WIDTH>-10);
+  frame++;
+}
+
+// ========== render ==========
+function render(){
+  ctx.clearRect(0,0,W,H);
+  drawGround();
+  for(let p of pipes) drawPipe(p);
+
+  const showDeadBird = (gameState==='dying'||gameState==='dead');
+  drawBird(showDeadBird);
+
+  if(gameState==='dying' && dieTimer < 6){
+    ctx.fillStyle = `rgba(180, 30, 30, ${0.18 - dieTimer*0.025})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  drawScore();
+  drawOverlay();
+}
+
+reset();
+function loop(){ update(); render(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
